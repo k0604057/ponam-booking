@@ -5,31 +5,41 @@ import { toDisplayId } from '@/lib/auth/identity';
 import InviteCreator from '@/components/members/InviteCreator';
 import MemberRow from '@/components/members/MemberRow';
 import InviteList from '@/components/members/InviteList';
+import { getViewer } from '@/lib/auth/viewer';
+import { perf, perfStart } from '@/lib/perf';
+
+// Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 둔다.
+export const preferredRegion = 'icn1';
 
 export const metadata = { title: '멤버 관리 · 포남동 예약관리' };
 
 export default async function MembersPage() {
+  const totalDone = perfStart('members:total');
+
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const uid = user?.id ?? '';
+  // 미들웨어가 이미 검증한 역할. owner 가 아니면 이 화면 자체를 열 수 없다.
+  // RLS 도 막지만 화면에서도 막는다.
+  const viewer = await getViewer();
+  if (!viewer.isOwner) redirect('/more');
+  const uid = viewer.id ?? '';
 
-  const { data: me } = await supabase.from('profiles').select('role').eq('id', uid).maybeSingle();
-  // owner 가 아니면 이 화면 자체를 열 수 없다. RLS 도 막지만 화면에서도 막는다.
-  if (me?.role !== 'owner') redirect('/more');
+  // 서로 의존하지 않으므로 병렬로.
+  const [{ data: profiles }, { data: invites }] = await perf('members:queries', async () =>
+    Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, name, email, role, is_active')
+        .order('is_active', { ascending: false })
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('invites')
+        .select('id, name, email, role, expires_at, accepted_at, created_at')
+        .is('accepted_at', null)
+        .order('created_at', { ascending: false }),
+    ])
+  );
 
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, name, email, role, is_active')
-    .order('is_active', { ascending: false })
-    .order('created_at', { ascending: true });
-
-  const { data: invites } = await supabase
-    .from('invites')
-    .select('id, name, email, role, expires_at, accepted_at, created_at')
-    .is('accepted_at', null)
-    .order('created_at', { ascending: false });
+  totalDone();
 
   return (
     <>

@@ -3,6 +3,9 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { requireOwner } from '@/lib/auth/guard';
 import { PASSWORD_MIN } from '@/lib/auth/identity';
 
+// Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 둔다.
+export const preferredRegion = 'icn1';
+
 /**
  * 아이디 계정은 이메일이 없어서 '비밀번호 찾기' 를 스스로 못 한다.
  * 호스트가 재설정해주지 못하면 비밀번호를 잊은 사람은 영영 못 들어온다.

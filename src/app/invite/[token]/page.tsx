@@ -3,6 +3,9 @@ import { hashInviteToken } from '@/lib/auth/invite-token';
 import { toDisplayId } from '@/lib/auth/identity';
 import AcceptForm from '@/components/invite/AcceptForm';
 
+// Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 둔다.
+export const preferredRegion = 'icn1';
+
 export const metadata = { title: '초대 · 포남동 예약관리' };
 
 const ROLE_LABEL: Record<string, string> = {

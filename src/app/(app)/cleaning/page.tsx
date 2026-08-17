@@ -1,33 +1,36 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { addDays, computeDeadline, effectiveDate, groupBySection, seoulToday } from '@/lib/cleaning';
+import { getViewer } from '@/lib/auth/viewer';
+import { perf, perfStart } from '@/lib/perf';
 import CleaningCard from '@/components/cleaning/CleaningCard';
-import type { CleaningTaskView, Viewer } from '@/components/cleaning/types';
+import type { CleaningTaskView } from '@/components/cleaning/types';
 
 export const metadata = { title: '청소 · 포남동 예약관리' };
+
+// Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 두지 않으면
+// 쿼리 한 번에 태평양을 왕복한다.
+export const preferredRegion = 'icn1';
 
 const PAST_DAYS = 14;
 const FUTURE_DAYS = 30;
 
 export default async function CleaningPage({ searchParams }: PageProps<'/cleaning'>) {
-  const showSkipped = (await searchParams).skipped === '1';
+  const totalDone = perfStart('cleaning:total');
 
+  const showSkipped = (await searchParams).skipped === '1';
   const supabase = await createClient();
   const today = seoulToday();
   const from = addDays(today, -PAST_DAYS);
   const to = addDays(today, FUTURE_DAYS);
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: me } = await supabase.from('profiles').select('role').eq('id', user?.id ?? '').maybeSingle();
-  const viewer: Viewer = { id: user?.id ?? null, isOwner: me?.role === 'owner' };
+  // 미들웨어가 이미 검증한 신원. getUser() + profiles 왕복 2회를 여기서 아낀다.
+  const viewer = await getViewer();
 
   // 금액·게스트 정보는 애초에 select 하지 않는다. RLS 로도 막혀 있지만 화면 코드에서도 안 가져온다.
   // 담당자가 예정일을 잡으면 조회 범위 밖으로 나갈 수 있으므로 scheduled_date 로 넉넉히 받고
   // 그룹핑은 coalesce(planned_date, scheduled_date) 로 한다.
-  let query = supabase
+  let tasksQuery = supabase
     .from('cleaning_tasks')
     .select(
       `id, scheduled_date, planned_date, status, needs_attention, note, completed_at, assignee_id,
@@ -40,11 +43,23 @@ export default async function CleaningPage({ searchParams }: PageProps<'/cleanin
     .lte('scheduled_date', to)
     .order('scheduled_date', { ascending: true });
 
-  if (!showSkipped) query = query.neq('status', 'skipped');
+  if (!showSkipped) tasksQuery = tasksQuery.neq('status', 'skipped');
 
-  const { data: rows, error } = await query;
+  // 마감일 계산에 쓸 입실일을 **한 번에** 가져온다. 청소 건마다 따로 조회하면 N+1 이 된다.
+  // 두 쿼리는 서로 의존하지 않으므로 병렬로 보낸다 — 왕복이 2회에서 1회분으로 줄어든다.
+  const [{ data: rows, error }, { data: checkins }] = await perf('cleaning:queries', async () =>
+    Promise.all([
+      tasksQuery,
+      supabase
+        .from('reservations')
+        .select('property_id, checkin_date')
+        .neq('status', 'cancelled')
+        .gte('checkin_date', from),
+    ])
+  );
 
   if (error) {
+    totalDone();
     return (
       <>
         <Header showSkipped={showSkipped} />
@@ -55,13 +70,7 @@ export default async function CleaningPage({ searchParams }: PageProps<'/cleanin
     );
   }
 
-  // 마감일 계산에 쓸 입실일. 퇴실일 이후의 입실만 필요하므로 from 부터 받으면 충분하다.
-  const { data: checkins } = await supabase
-    .from('reservations')
-    .select('property_id, checkin_date')
-    .neq('status', 'cancelled')
-    .gte('checkin_date', from);
-
+  // property_id 별로 묶어 메모리에서 맞춘다.
   const checkinsByProperty = new Map<string, string[]>();
   for (const r of checkins ?? []) {
     const list = checkinsByProperty.get(r.property_id);
@@ -93,11 +102,12 @@ export default async function CleaningPage({ searchParams }: PageProps<'/cleanin
       propertyName: r.properties?.name ?? '숙소',
       propertyColor: r.properties?.color ?? '#3b82f6',
       publicNote: r.reservations?.public_note ?? null,
-      isMine: !!user && r.assignee_id === user.id,
+      isMine: !!viewer.id && r.assignee_id === viewer.id,
     };
   });
 
   const sections = groupBySection(tasks, today);
+  totalDone();
 
   return (
     <>
@@ -124,7 +134,11 @@ export default async function CleaningPage({ searchParams }: PageProps<'/cleanin
               <ul className="flex flex-col gap-3">
                 {section.tasks.map((task) => (
                   <li key={task.id}>
-                    <CleaningCard task={task} viewer={viewer} overdue={section.key === 'overdue'} />
+                    <CleaningCard
+                      task={task}
+                      viewer={{ id: viewer.id, isOwner: viewer.isOwner }}
+                      overdue={section.key === 'overdue'}
+                    />
                   </li>
                 ))}
               </ul>

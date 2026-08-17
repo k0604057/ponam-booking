@@ -34,10 +34,16 @@ export type CalendarEvent = {
   detail: string | null;
 };
 
-/** 이벤트를 주 단위로 묶는다. 빈 주는 만들지 않는다. */
+export type CalendarWeek = { monday: string; label: string; events: CalendarEvent[] };
+
+/**
+ * 이벤트를 주 단위로 묶는다. 빈 주는 만들지 않는다.
+ * `direction: 'desc'` 면 주도 이벤트도 내림차순 — 지난 예약은 최근 것이 위가 맞다.
+ */
 export function groupByWeek(
-  events: readonly CalendarEvent[]
-): Array<{ monday: string; label: string; events: CalendarEvent[] }> {
+  events: readonly CalendarEvent[],
+  direction: 'asc' | 'desc' = 'asc'
+): CalendarWeek[] {
   const weeks = new Map<string, CalendarEvent[]>();
   for (const e of events) {
     const monday = startOfWeek(e.date);
@@ -45,13 +51,28 @@ export function groupByWeek(
     if (list) list.push(e);
     else weeks.set(monday, [e]);
   }
+  const sign = direction === 'asc' ? 1 : -1;
   return [...weeks.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => sign * a.localeCompare(b))
     .map(([monday, list]) => ({
       monday,
       label: weekLabel(monday),
-      events: list.sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind)),
+      events: list.sort((a, b) => sign * a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind)),
     }));
+}
+
+/**
+ * 오늘을 기준으로 앞/뒤를 가른다.
+ * 달력을 열면 오늘이 맨 위에 있어야 한다 — 지난 것부터 보이면 매번 스크롤해야 한다.
+ */
+export function splitAtToday(
+  events: readonly CalendarEvent[],
+  today: string
+): { upcoming: CalendarEvent[]; past: CalendarEvent[] } {
+  const upcoming: CalendarEvent[] = [];
+  const past: CalendarEvent[] = [];
+  for (const e of events) (e.date >= today ? upcoming : past).push(e);
+  return { upcoming, past };
 }
 
 /** 월 그리드용 — 그 달 1일이 속한 주의 월요일부터 6주치 날짜 */

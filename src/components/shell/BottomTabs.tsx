@@ -1,9 +1,10 @@
 'use client';
 
-import Link from 'next/link';
+import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
 
 // 역할로 탭을 숨기지 않는다. RLS 가 이미 막고 있으므로 보안 문제가 아니라 UX 문제다.
+// next/link 를 쓰는 이유는 프리페치다 — router.push 나 <a> 로 바꾸면 프리페치가 사라진다.
 const TABS = [
   { href: '/cleaning', label: '청소', icon: BroomIcon },
   { href: '/calendar', label: '달력', icon: CalendarIcon },
@@ -25,22 +26,46 @@ export default function BottomTabs() {
           const active = pathname === href || pathname.startsWith(href + '/');
           return (
             <li key={href} className="flex-1">
-              <Link
-                href={href}
-                aria-current={active ? 'page' : undefined}
-                className={`flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium ${
-                  active ? 'text-neutral-900 dark:text-neutral-50' : 'text-neutral-400 dark:text-neutral-500'
-                }`}
-              >
-                <Icon filled={active} />
-                {/* 아이콘만 두지 않는다 — 라벨이 있어야 알아본다 */}
-                <span>{label}</span>
+              <Link href={href} aria-current={active ? 'page' : undefined} className="block">
+                <TabInner Icon={Icon} label={label} active={active} />
               </Link>
             </li>
           );
         })}
       </ul>
     </nav>
+  );
+}
+
+/**
+ * 누른 탭이 **즉시** 활성으로 보이게 한다.
+ * 서버 컴포넌트가 끝날 때까지 아무 반응이 없으면 사람은 두 번 누른다.
+ * useLinkStatus 는 Link 의 자손에서만 쓸 수 있어 컴포넌트를 나눴다.
+ */
+function TabInner({
+  Icon,
+  label,
+  active,
+}: {
+  Icon: (p: IconProps) => React.ReactElement;
+  label: string;
+  active: boolean;
+}) {
+  const { pending } = useLinkStatus();
+  const highlighted = active || pending;
+
+  return (
+    <span
+      className={`flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors ${
+        highlighted ? 'text-neutral-900 dark:text-neutral-50' : 'text-neutral-400 dark:text-neutral-500'
+      }`}
+    >
+      <span className={pending ? 'animate-pulse' : undefined}>
+        <Icon filled={highlighted} />
+      </span>
+      {/* 아이콘만 두지 않는다 — 라벨이 있어야 알아본다 */}
+      <span>{label}</span>
+    </span>
   );
 }
 

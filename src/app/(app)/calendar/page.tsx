@@ -1,36 +1,57 @@
 import { createClient } from '@/lib/supabase/server';
 import { addDays, daysBetween, formatShortDate, seoulToday } from '@/lib/cleaning';
-import { groupByWeek, type CalendarEvent } from '@/lib/calendar';
+import { groupByWeek, splitAtToday, type CalendarEvent } from '@/lib/calendar';
+import { perf, perfStart } from '@/lib/perf';
 import WeekList from '@/components/calendar/WeekList';
+import PastEvents from '@/components/calendar/PastEvents';
 import MonthGrid from '@/components/calendar/MonthGrid';
 import StayingCard from '@/components/calendar/StayingCard';
 
 export const metadata = { title: '달력 · 포남동 예약관리' };
+export const preferredRegion = 'icn1';
 
 const PAST_DAYS = 30;
 const FUTURE_DAYS = 90;
 
 export default async function CalendarPage() {
+  const totalDone = perfStart('calendar:total');
+
   const supabase = await createClient();
   const today = seoulToday();
   const from = addDays(today, -PAST_DAYS);
   const to = addDays(today, FUTURE_DAYS);
 
-  // 기간이 겹치는 예약을 전부 잡는다.
-  // checkin_date 만으로 거르면 '이미 입실해서 지금 거주중' 인 예약이 사라진다.
-  const { data: reservations, error } = await supabase
-    .from('reservations')
-    .select(
-      `id, checkin_date, checkout_date, status,
-       properties!reservations_property_id_fkey ( name, color ),
-       reservation_private ( guest_name )`
-    )
-    .neq('status', 'cancelled')
-    .gte('checkout_date', from)
-    .lte('checkin_date', to)
-    .order('checkin_date', { ascending: true });
+  // 서로 의존하지 않으므로 병렬로 보낸다.
+  // 예약은 기간이 겹치는 것을 전부 잡는다 — checkin_date 만으로 거르면
+  // '이미 입실해서 지금 거주중' 인 예약이 사라진다.
+  const [{ data: reservations, error }, { data: tasks }] = await perf('calendar:queries', async () =>
+    Promise.all([
+      supabase
+        .from('reservations')
+        .select(
+          `id, checkin_date, checkout_date, status,
+           properties!reservations_property_id_fkey ( name, color ),
+           reservation_private ( guest_name )`
+        )
+        .neq('status', 'cancelled')
+        .gte('checkout_date', from)
+        .lte('checkin_date', to)
+        .order('checkin_date', { ascending: true }),
+      supabase
+        .from('cleaning_tasks')
+        .select(
+          `id, scheduled_date, planned_date, status,
+           properties!cleaning_tasks_property_id_fkey ( name, color ),
+           assignee:profiles!cleaning_tasks_assignee_id_fkey ( name )`
+        )
+        .neq('status', 'skipped')
+        .gte('scheduled_date', from)
+        .lte('scheduled_date', to),
+    ])
+  );
 
   if (error) {
+    totalDone();
     return (
       <>
         <h1 className="mb-5 text-xl font-bold">달력</h1>
@@ -41,26 +62,14 @@ export default async function CalendarPage() {
     );
   }
 
-  const { data: tasks } = await supabase
-    .from('cleaning_tasks')
-    .select(
-      `id, scheduled_date, planned_date, status,
-       properties!cleaning_tasks_property_id_fkey ( name, color ),
-       assignee:profiles!cleaning_tasks_assignee_id_fkey ( name )`
-    )
-    .neq('status', 'skipped')
-    .gte('scheduled_date', from)
-    .lte('scheduled_date', to);
-
   const events: CalendarEvent[] = [];
 
   for (const r of reservations ?? []) {
     // reservation_private 은 owner/reservation 만 조회된다. 그 외 역할에는 빈 배열로 온다.
-    const guestName = r.reservation_private?.guest_name ?? null;
     const base = {
       propertyName: r.properties?.name ?? '숙소',
       propertyColor: r.properties?.color ?? '#3b82f6',
-      guestName,
+      guestName: r.reservation_private?.guest_name ?? null,
       reservationId: r.id,
       cleaningTaskId: null,
       detail: null,
@@ -76,7 +85,7 @@ export default async function CalendarPage() {
   for (const t of tasks ?? []) {
     const when = t.planned_date ?? t.scheduled_date;
     const planned = t.planned_date ? `예정 ${formatShortDate(t.planned_date)}` : '예정일 미정';
-    const done = t.status === 'done' ? '완료' : '미완료';
+    const status = t.status === 'done' ? '완료' : '미완료';
     events.push({
       key: `clean-${t.id}`,
       date: when,
@@ -86,11 +95,14 @@ export default async function CalendarPage() {
       guestName: null,
       reservationId: null,
       cleaningTaskId: t.id,
-      detail: `${planned} · ${done}${t.assignee?.name ? ` · ${t.assignee.name}` : ''}`,
+      detail: `${planned} · ${status}${t.assignee?.name ? ` · ${t.assignee.name}` : ''}`,
     });
   }
 
-  const weeks = groupByWeek(events);
+  // 오늘부터 앞으로가 기본. 지난 것은 접어두고, 펼치면 최신순으로 보여준다.
+  const { upcoming, past } = splitAtToday(events, today);
+  const upcomingWeeks = groupByWeek(upcoming, 'asc');
+  const pastWeeks = groupByWeek(past, 'desc');
 
   const staying = (reservations ?? [])
     .filter((r) => r.checkin_date <= today && today <= r.checkout_date)
@@ -104,15 +116,18 @@ export default async function CalendarPage() {
       daysLeft: daysBetween(today, r.checkout_date),
     }));
 
+  totalDone();
+
   return (
     <>
       <h1 className="mb-5 text-xl font-bold">달력</h1>
 
+      {/* 거주중 예약은 목록에 묻히면 안 되므로 맨 위에 고정한다 */}
       {staying.map((s) => (
         <StayingCard key={s.id} stay={s} />
       ))}
 
-      {weeks.length === 0 ? (
+      {upcoming.length === 0 && past.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-neutral-300 px-6 py-16 text-center dark:border-neutral-700">
           <p className="text-sm text-neutral-500">이 기간에 예약이 없습니다.</p>
         </div>
@@ -120,7 +135,14 @@ export default async function CalendarPage() {
         <>
           {/* 폰은 목록형이 기본 */}
           <div className="md:hidden">
-            <WeekList weeks={weeks} today={today} />
+            <PastEvents weeks={pastWeeks} count={past.length} today={today} />
+            {upcomingWeeks.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-neutral-300 px-6 py-10 text-center text-sm text-neutral-500 dark:border-neutral-700">
+                앞으로 예정된 일정이 없습니다.
+              </p>
+            ) : (
+              <WeekList weeks={upcomingWeeks} today={today} />
+            )}
           </div>
           {/* 태블릿 이상은 월 그리드 */}
           <div className="hidden md:block">

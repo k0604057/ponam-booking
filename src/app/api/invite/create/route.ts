@@ -6,6 +6,9 @@ import { createInviteToken, hashInviteToken, inviteExpiresAt } from '@/lib/auth/
 import { isValidInviteIdentifier, isValidName, toAuthEmail, toDisplayId } from '@/lib/auth/identity';
 import { resolveSiteUrl } from '@/lib/site-url';
 
+// Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 둔다.
+export const preferredRegion = 'icn1';
+
 const ALLOWED_ROLES = ['reservation', 'settlement', 'cleaning'] as const;
 type AllowedRole = (typeof ALLOWED_ROLES)[number];
 

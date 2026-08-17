@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { formatShortDate, seoulToday } from '@/lib/cleaning';
+import { perf, perfStart } from '@/lib/perf';
+
+// Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 둔다.
+export const preferredRegion = 'icn1';
 
 export const metadata = { title: '예약 · 포남동 예약관리' };
 
@@ -21,7 +25,9 @@ export default async function ReservationsPage({ searchParams }: PageProps<'/res
   const supabase = await createClient();
   const today = seoulToday();
 
-  const { data: rows, error } = await supabase
+  const totalDone = perfStart('reservations:total');
+
+  const { data: rows, error } = await perf('reservations:query', async () => supabase
     .from('reservations')
     .select(
       `id, external_id, status, checkin_date, checkout_date, nights,
@@ -29,9 +35,11 @@ export default async function ReservationsPage({ searchParams }: PageProps<'/res
        reservation_private ( guest_name ),
        reservation_finance ( gross_amount, net_amount )`
     )
-    .order('checkin_date', { ascending: false });
+    .order('checkin_date', { ascending: false })
+  );
 
   if (error) {
+    totalDone();
     return (
       <>
         <h1 className="mb-5 text-xl font-bold">예약</h1>
@@ -56,6 +64,8 @@ export default async function ReservationsPage({ searchParams }: PageProps<'/res
         return true;
     }
   });
+
+  totalDone();
 
   return (
     <>

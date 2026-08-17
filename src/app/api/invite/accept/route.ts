@@ -3,6 +3,9 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { hashInviteToken } from '@/lib/auth/invite-token';
 import { PASSWORD_MIN } from '@/lib/auth/identity';
 
+// Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 둔다.
+export const preferredRegion = 'icn1';
+
 // invites 는 owner 만 읽을 수 있게 RLS 로 막혀 있어 클라이언트에서 직접 조회할 수 없다.
 // 초대 수락은 반드시 service_role 을 쓰는 이 서버 라우트에서 처리한다.
 //

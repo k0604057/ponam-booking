@@ -1,9 +1,6 @@
-'use client';
-
-import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { formatShortDate } from '@/lib/cleaning';
-import type { CalendarEvent } from '@/lib/calendar';
+import type { CalendarEvent, CalendarWeek } from '@/lib/calendar';
 
 const KIND_LABEL = { checkin: '입실', checkout: '퇴실', cleaning: '청소' } as const;
 
@@ -13,40 +10,31 @@ const KIND_STYLE = {
   cleaning: 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300',
 } as const;
 
-export default function WeekList({
-  weeks,
-  today,
-}: {
-  weeks: Array<{ monday: string; label: string; events: CalendarEvent[] }>;
-  today: string;
-}) {
-  const todayRef = useRef<HTMLDivElement>(null);
-
-  // 진입하면 오늘 위치로 보낸다. 과거 30일이 위에 쌓여 있어서 그냥 두면 한참 스크롤해야 한다.
-  useEffect(() => {
-    todayRef.current?.scrollIntoView({ block: 'center' });
-  }, []);
-
+/**
+ * 주 단위 목록.
+ * 진입 시 스크롤을 오늘로 옮기지 않는다 — 오늘이 이미 맨 위이고,
+ * 스크롤 점프는 그 자체로 느리게 느껴진다. (그래서 클라이언트 컴포넌트일 필요도 없다)
+ */
+export default function WeekList({ weeks, today }: { weeks: CalendarWeek[]; today: string }) {
   return (
     <div className="flex flex-col gap-6">
-      {weeks.map((week) => {
-        const containsToday = isThisWeek(week.monday, today);
-        return (
-          <section key={week.monday} ref={containsToday ? todayRef : undefined}>
-            <h2 className="mb-2 border-b border-neutral-200 pb-1.5 text-sm font-bold text-neutral-500 dark:border-neutral-800">
-              {week.label}
-              {containsToday && <span className="ml-2 text-xs font-semibold text-emerald-600">이번 주</span>}
-            </h2>
-            <ul className="flex flex-col gap-1.5">
-              {week.events.map((e) => (
-                <li key={e.key}>
-                  <Row event={e} isToday={e.date === today} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        );
-      })}
+      {weeks.map((week) => (
+        <section key={week.monday}>
+          <h2 className="mb-2 border-b border-neutral-200 pb-1.5 text-sm font-bold text-neutral-500 dark:border-neutral-800">
+            {week.label}
+            {isThisWeek(week.monday, today) && (
+              <span className="ml-2 text-xs font-semibold text-emerald-600">이번 주</span>
+            )}
+          </h2>
+          <ul className="flex flex-col gap-1.5">
+            {week.events.map((e) => (
+              <li key={e.key}>
+                <Row event={e} isToday={e.date === today} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }
@@ -80,15 +68,8 @@ function Row({ event, isToday }: { event: CalendarEvent; isToday: boolean }) {
     </div>
   );
 
-  if (event.kind === 'cleaning') {
-    return (
-      <Link href="/cleaning" className="block">
-        {inner}
-      </Link>
-    );
-  }
   return (
-    <Link href={`/reservations/${event.reservationId}`} className="block">
+    <Link href={event.kind === 'cleaning' ? '/cleaning' : `/reservations/${event.reservationId}`} className="block">
       {inner}
     </Link>
   );
