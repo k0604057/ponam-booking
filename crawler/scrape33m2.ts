@@ -14,6 +14,14 @@ const BASE = 'https://web.33m2.co.kr';
 const MAX_PAGES = 20;
 const NAV_TIMEOUT = 45_000;
 
+/** 서버가 접근을 거부한 경우(403). 세션 문제와 구분해야 대응이 달라진다. */
+export class BlockedError extends Error {
+  constructor(detail: string) {
+    super(`33m2 가 접근을 거부했습니다 (${detail}). User-Agent 차단이나 IP 차단일 수 있습니다.`);
+    this.name = 'BlockedError';
+  }
+}
+
 export class SessionExpiredError extends Error {
   constructor(detail: string) {
     super(`33m2 세션이 만료됐습니다 (${detail}). 맥 화면에서 'npx tsx crawler/session.ts' 를 다시 실행하세요.`);
@@ -68,6 +76,17 @@ export function parseKoreanDate(text: string): string | null {
   return m ? `${m[1]}-${pad(m[2])}-${pad(m[3])}` : null;
 }
 
+/**
+ * 전화번호 자리에 번호가 아닌 안내 문장이 들어오는 경우가 있다.
+ * 취소된 계약은 '취소된 계약은 연락처가 공개되지 않습니다.' 가 그 자리에 온다.
+ * 형식이 아니면 null 로 둔다 — 문장을 연락처로 저장하면 화면에서 전화번호처럼 보인다.
+ */
+export function normalizePhone(value: string | null): string | null {
+  if (!value) return null;
+  const m = value.match(/(0\d{1,2})[-\s]?(\d{3,4})[-\s]?(\d{4})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
 /** '350,000원' → 350000, '-11,550원' → -11550 */
 export function parseAmount(text: string): number | null {
   const m = text.match(/(-?[\d,]+)\s*원/);
@@ -85,6 +104,8 @@ export type ParsedDetail = {
   jibunAddress: string | null;
   guestName: string | null;
   guestPhone: string | null;
+  /** 정규화 전 원문. 번호가 아니면 안내 문장이 들어 있다. */
+  guestPhoneRaw: string | null;
   checkinDate: string | null;
   checkoutDate: string | null;
   statusBadge: string | null;
@@ -165,7 +186,7 @@ export function parseDetailText(text: string): ParsedDetail {
   }
 
   const guestName = tenantStart >= 0 ? fieldIn(lines, tenantStart + 1, tenantEnd, '이름') : null;
-  const guestPhone = tenantStart >= 0 ? fieldIn(lines, tenantStart + 1, tenantEnd, '연락처') : null;
+  const guestPhoneRaw = tenantStart >= 0 ? fieldIn(lines, tenantStart + 1, tenantEnd, '연락처') : null;
 
   const roadAddress = after('도로명');
   const jibunAddress = after('지번');
@@ -203,7 +224,8 @@ export function parseDetailText(text: string): ParsedDetail {
     roadAddress,
     jibunAddress,
     guestName,
-    guestPhone,
+    guestPhone: normalizePhone(guestPhoneRaw),
+    guestPhoneRaw,
     checkinDate: dateFor(lines, '입주일'),
     checkoutDate: dateFor(lines, '퇴실일'),
     statusBadge: badge?.badge ?? null,
@@ -232,9 +254,38 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** 남의 서버다. 요청 사이에 1~2초 랜덤 대기. */
 const politeDelay = () => sleep(1000 + Math.floor(Math.random() * 1000));
 
-async function assertSession(page: Page): Promise<void> {
-  await page.goto(`${BASE}/host/main`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+/**
+ * 헤드리스 기본 UA 에는 'HeadlessChrome' 토큰이 들어가고, 33m2 는 그걸로 차단한다(403).
+ * 버전을 하드코딩하면 크로미움이 올라갈 때마다 썩으므로, 실제 UA 를 읽어 토큰만 지운다.
+ */
+async function realUserAgent(browser: Browser): Promise<string> {
+  const probe = await browser.newContext();
+  try {
+    const page = await probe.newPage();
+    const ua = await page.evaluate(() => navigator.userAgent);
+    return ua.replace(/HeadlessChrome/g, 'Chrome');
+  } finally {
+    await probe.close();
+  }
+}
+
+/**
+ * 이동 후 HTTP 상태를 반드시 확인한다.
+ * 403 은 로그인 폼도 리다이렉트도 없는 순수 차단 페이지라, 상태를 안 보면
+ * '정상 접속했는데 계약이 0건' 으로 오인된다.
+ */
+async function navigate(page: Page, url: string): Promise<void> {
+  const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+  const status = resp?.status() ?? 0;
+  if (status === 401 || status === 403) {
+    throw new BlockedError(`${url} 접근이 거부됐습니다 (HTTP ${status})`);
+  }
+  if (status >= 400) throw new Error(`${url} 요청 실패 (HTTP ${status})`);
   await page.waitForLoadState('networkidle').catch(() => {});
+}
+
+async function assertSession(page: Page): Promise<void> {
+  await navigate(page, `${BASE}/host/main`);
 
   const url = page.url();
   if (/\/(login|signin|auth)\b/i.test(url)) throw new SessionExpiredError(`로그인 페이지로 리다이렉트됨: ${url}`);
@@ -291,8 +342,7 @@ async function gotoListPage(page: Page, n: number): Promise<boolean> {
 }
 
 async function scrapeDetail(page: Page, id: string): Promise<ScrapedContract> {
-  await page.goto(`${BASE}/host/contract/${id}`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await navigate(page, `${BASE}/host/contract/${id}`);
   const text = await page.locator('body').innerText();
   const d = parseDetailText(text);
 
@@ -304,8 +354,7 @@ async function scrapeDetail(page: Page, id: string): Promise<ScrapedContract> {
   let timeline: Array<{ label: string; at: string }> = [];
   let scheduleText = '';
   try {
-    await page.goto(`${BASE}/host/contract/${id}/schedule`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await navigate(page, `${BASE}/host/contract/${id}/schedule`);
     scheduleText = await page.locator('body').innerText();
     timeline = parseTimeline(scheduleText);
   } catch {
@@ -352,6 +401,7 @@ export async function scrape(errors: string[] = []): Promise<ScrapedContract[]> 
       storageState: env.sessionPath,
       locale: 'ko-KR',
       timezoneId: 'Asia/Seoul',
+      userAgent: await realUserAgent(browser),
     });
     const page = await context.newPage();
     page.setDefaultTimeout(NAV_TIMEOUT);
@@ -359,8 +409,7 @@ export async function scrape(errors: string[] = []): Promise<ScrapedContract[]> 
     await assertSession(page);
     await politeDelay();
 
-    await page.goto(`${BASE}/host/contract`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await navigate(page, `${BASE}/host/contract`);
     await page
       .waitForSelector('a[href^="/host/contract/"]', { timeout: 20_000 })
       .catch(() => console.warn('경고: 계약 링크를 찾지 못했습니다 (계약이 없거나 마크업이 바뀌었습니다)'));
