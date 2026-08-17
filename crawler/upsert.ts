@@ -2,6 +2,8 @@
 // service_role 로 접속해 RLS 를 우회한다. 예약 1건은 3개 테이블에 나눠 넣는다:
 //   reservations (숙소·기간·상태) / reservation_private (게스트·raw) / reservation_finance (금액)
 //
+// 숙소(properties)도 크롤러가 만든다. 키는 지번 주소다 — resolvePropertyId 주석 참고.
+//
 // 삭제는 하지 않는다. 목록에서 사라진 계약도 그대로 둔다.
 // 청소 일정도 만들지 않는다 — reservations 를 쓰면 DB 트리거가 알아서 처리한다.
 
@@ -21,36 +23,53 @@ function db() {
 type Client = ReturnType<typeof db>;
 
 /**
- * 상세 페이지의 방 이름으로 properties.external_id 를 찾는다.
- * 못 찾았는데 활성 숙소가 정확히 하나뿐이면 그걸 쓰고 경고를 남긴다.
- * 활성 숙소가 둘 이상인데 못 찾으면 그 계약은 건너뛴다.
+ * 숙소도 크롤러가 만든다. 수동 등록은 없다.
+ *
+ * 키는 지번 주소다 (properties.external_id = 지번 주소).
+ * 방 이름은 호스트가 언제든 바꾸는 홍보 문구라 키로 불안정하다.
+ *
+ * 주소가 수정되면 숙소가 하나 더 생긴다. 자동 병합은 하지 않는다 —
+ * 잘못 합치는 게 중복보다 나쁘다. 설정 화면에서 사람이 확인하고 합친다.
  */
 async function resolvePropertyId(
   client: Client,
-  roomName: string,
+  item: ScrapedContract,
   warnings: string[]
 ): Promise<string> {
-  const { data: exact, error: e1 } = await client
-    .from('properties')
-    .select('id')
-    .eq('external_id', roomName)
-    .maybeSingle();
-  if (e1) throw new Error(`properties 조회 실패: ${e1.message}`);
-  if (exact) return exact.id;
+  const key = item.jibunAddress;
+  if (!key) {
+    // 도로명 주소로 대신 키를 잡으면 같은 숙소가 다른 키로 하나 더 생긴다. 추측하지 않고 실패시킨다.
+    throw new Error(`지번 주소를 찾지 못해 숙소를 특정할 수 없습니다 (방 이름: '${item.roomName}')`);
+  }
 
-  const { data: actives, error: e2 } = await client
+  const { data: found, error: selErr } = await client
     .from('properties')
     .select('id, name')
-    .eq('is_active', true);
-  if (e2) throw new Error(`properties 조회 실패: ${e2.message}`);
+    .eq('external_id', key)
+    .maybeSingle();
+  if (selErr) throw new Error(`properties 조회 실패: ${selErr.message}`);
 
-  if (actives && actives.length === 1) {
-    warnings.push(`숙소 '${roomName}' 를 external_id 로 못 찾아 유일한 활성 숙소('${actives[0].name}')로 대체했습니다`);
-    return actives[0].id;
+  if (found) {
+    // 이름이 달라졌을 때만 갱신한다.
+    if (found.name !== item.roomName) {
+      const { error: updErr } = await client
+        .from('properties')
+        .update({ name: item.roomName })
+        .eq('id', found.id);
+      if (updErr) throw new Error(`properties 이름 갱신 실패: ${updErr.message}`);
+      warnings.push(`숙소 이름 변경 반영: '${found.name}' → '${item.roomName}'`);
+    }
+    return found.id;
   }
-  throw new Error(
-    `숙소 '${roomName}' 를 찾지 못했습니다 (활성 숙소 ${actives?.length ?? 0}개 — 유일하지 않아 대체 불가)`
-  );
+
+  const { data: created, error: insErr } = await client
+    .from('properties')
+    .insert({ name: item.roomName, address: key, external_id: key })
+    .select('id')
+    .single();
+  if (insErr) throw new Error(`properties 등록 실패: ${insErr.message}`);
+  warnings.push(`숙소 신규 등록: '${item.roomName}' (${key})`);
+  return created.id;
 }
 
 /** 기존 예약과 비교해 바뀐 필드마다 reservation_changes 에 한 줄씩 남긴다. */
@@ -84,7 +103,7 @@ export async function upsertAll(
   let updated = 0;
 
   for (const item of items) {
-    const propertyId = await resolvePropertyId(client, item.roomName, warnings);
+    const propertyId = await resolvePropertyId(client, item, warnings);
 
     const { data: existing, error: exErr } = await client
       .from('reservations')

@@ -25,6 +25,8 @@ export type ScrapedContract = {
   externalId: string;
   roomName: string;
   roomAddress: string | null;
+  /** properties 의 키. 방 이름은 호스트가 바꾸는 홍보 문구라 키로 불안정하다. */
+  jibunAddress: string | null;
   guestName: string | null;
   guestPhone: string | null;
   checkinDate: string; // YYYY-MM-DD
@@ -314,6 +316,7 @@ async function scrapeDetail(page: Page, id: string): Promise<ScrapedContract> {
     externalId: id,
     roomName: d.roomName,
     roomAddress: d.roomAddress,
+    jibunAddress: d.jibunAddress,
     guestName: d.guestName,
     guestPhone: d.guestPhone,
     checkinDate: d.checkinDate,
