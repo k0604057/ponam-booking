@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { formatShortDate, seoulToday } from '@/lib/cleaning';
 import { perf, perfStart } from '@/lib/perf';
-import { DIM_CLASS, statusStyle } from '@/lib/status';
+import { statusStyle } from '@/lib/status';
 
 // Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 둔다.
 export const preferredRegion = 'icn1';
@@ -111,37 +111,45 @@ export default async function ReservationsPage({ searchParams }: PageProps<'/res
               <li key={r.id}>
                 <Link
                   href={`/reservations/${r.id}`}
-                  // 종료·취소 건은 카드 전체를 흐리게 한다.
-                  // 배경만 회색으로 두면 글자·배지·금액이 여전히 눈에 걸린다.
-                  className={`block rounded-2xl px-4 py-3.5 ${style.card} ${style.dim ? DIM_CLASS : ''}`}
+                  // opacity 는 클릭을 막지 않는다. 흐려도 눌러서 열 수 있다.
+                  className={`relative block rounded-2xl px-4 py-3.5 ${style.card}`}
                 >
-                  <div className="flex items-baseline gap-2">
-                    <span className={`text-base font-bold ${style.strikethrough ? 'line-through' : ''}`}>
-                      {formatShortDate(r.checkin_date)} ~ {formatShortDate(r.checkout_date)}
-                    </span>
-                    <span className="text-xs text-neutral-500">{r.nights}박</span>
+                  {/* 배지는 흐림 밖에 둔다 — 배지까지 흐려지면 왜 흐린지 알 수 없어진다 */}
+                  <span
+                    className={`absolute top-3.5 right-4 rounded-full px-2.5 py-1 text-xs font-semibold ${style.badge}`}
+                  >
+                    {style.label}
+                  </span>
+
+                  {/* 흐리게 하는 대상은 카드 내용 전체다. 배경만 회색으로 두면 글자가 눈에 걸린다. */}
+                  <div className={style.dimClass}>
+                    <div className="flex items-baseline gap-2 pr-16">
+                      <span className={`text-base font-bold ${style.strikethrough ? 'line-through' : ''}`}>
+                        {formatShortDate(r.checkin_date)} ~ {formatShortDate(r.checkout_date)}
+                      </span>
+                      <span className="text-xs text-neutral-500">{r.nights}박</span>
+                    </div>
+
+                    <div className="mt-2 flex items-center gap-2">
+                      <span
+                        className="size-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: r.properties?.color ?? '#3b82f6' }}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm text-neutral-600 dark:text-neutral-400">
+                        {r.properties?.name ?? '숙소'}
+                      </span>
+                    </div>
+
+                    {guestName && <p className="mt-2 text-sm text-neutral-500">{guestName}</p>}
+
+                    {finance && (
+                      <p className={`mt-1 text-sm text-neutral-500 ${style.strikethrough ? 'line-through' : ''}`}>
+                        이용 {finance.gross_amount.toLocaleString()}원 · 정산 {finance.net_amount.toLocaleString()}원
+                      </p>
+                    )}
+
+                    <p className="mt-1 text-xs text-neutral-400">계약 {r.external_id}</p>
                   </div>
-
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: r.properties?.color ?? '#3b82f6' }} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-neutral-600 dark:text-neutral-400">
-                      {r.properties?.name ?? '숙소'}
-                    </span>
-                    {/* 색만으로 구분하지 않는다. 배지 텍스트를 항상 같이 둔다. */}
-                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${style.badge}`}>
-                      {style.label}
-                    </span>
-                  </div>
-
-                  {guestName && <p className="mt-2 text-sm text-neutral-500">{guestName}</p>}
-
-                  {finance && (
-                    <p className="mt-1 text-sm text-neutral-500">
-                      이용 {finance.gross_amount.toLocaleString()}원 · 정산 {finance.net_amount.toLocaleString()}원
-                    </p>
-                  )}
-
-                  <p className="mt-1 text-xs text-neutral-400">계약 {r.external_id}</p>
                 </Link>
               </li>
             );

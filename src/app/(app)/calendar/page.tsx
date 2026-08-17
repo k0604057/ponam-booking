@@ -1,10 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
-import { daysBetween, seoulToday } from '@/lib/cleaning';
+import { seoulToday } from '@/lib/cleaning';
 import { shiftMonth } from '@/lib/stats';
 import { reservationVisualStatus } from '@/lib/status';
 import { perf, perfStart } from '@/lib/perf';
 import MonthCalendar from '@/components/calendar/MonthCalendar';
-import StayingCard from '@/components/calendar/StayingCard';
 import type { CalReservation, CalTask } from '@/components/calendar/types';
 
 export const metadata = { title: '달력 · 포남동 예약관리' };
@@ -93,29 +92,14 @@ export default async function CalendarPage({ searchParams }: PageProps<'/calenda
     assigneeName: t.assignee?.name ?? null,
   }));
 
-  const staying = reservations
-    .filter((r) => r.visual === 'staying')
-    .map((r) => ({
-      id: r.id,
-      checkinDate: r.checkinDate,
-      checkoutDate: r.checkoutDate,
-      guestName: r.guestName,
-      propertyName: r.propertyName,
-      propertyColor: r.propertyColor,
-      daysLeft: daysBetween(today, r.checkoutDate),
-    }));
-
   totalDone();
 
   return (
     <>
       <h1 className="mb-5 text-xl font-bold">달력</h1>
 
-      {/* 거주중 예약은 목록에 묻히면 안 되므로 맨 위에 고정한다 */}
-      {staying.map((s) => (
-        <StayingCard key={s.id} stay={s} />
-      ))}
-
+      {/* 거주중 예약은 월 그리드의 오늘 칸에 초록 막대로 이미 보인다.
+          고정 카드를 두면 같은 정보를 두 번 보여주고 그리드가 아래로 밀린다. */}
       <MonthCalendar
         month={month}
         loadedFrom={from}

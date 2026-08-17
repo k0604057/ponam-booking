@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { formatShortDate } from '@/lib/cleaning';
 import { monthGridDates } from '@/lib/calendar';
 import { shiftMonth } from '@/lib/stats';
-import { DIM_CLASS, RESERVATION_STATUS_STYLE } from '@/lib/status';
+import { RESERVATION_STATUS_STYLE } from '@/lib/status';
+import Legend from './Legend';
 import type { CalReservation, CalTask } from './types';
 
 const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'] as const;
@@ -66,10 +67,40 @@ export default function MonthCalendar({
     setViewMonth(next);
   }
 
+  // 느낌표 점은 작아서 그냥 지나치기 쉽다. 상단에 칩으로 띄운다.
+  const attentionDates = useMemo(
+    () => [...new Set(tasks.filter((t) => t.needsAttention).map((t) => t.date))].sort(),
+    [tasks]
+  );
+
+  function goToAttention() {
+    const target = attentionDates.find((d) => d >= today) ?? attentionDates[0];
+    if (!target) return;
+    const m = target.slice(0, 7);
+    if (`${m}-01` < loadedFrom || `${m}-01` > loadedTo) {
+      router.push(`/calendar?m=${m}`);
+      return;
+    }
+    setViewMonth(m);
+    setSelected(target);
+  }
+
   const selectedBucket = selected ? byDate.get(selected) : undefined;
 
   return (
     <div>
+      {attentionDates.length > 0 && (
+        <button
+          type="button"
+          onClick={goToAttention}
+          className="mb-3 flex h-11 w-full items-center gap-2 rounded-xl border border-orange-300 bg-orange-50 px-3.5 text-sm font-semibold text-orange-800 dark:border-orange-900 dark:bg-orange-950/50 dark:text-orange-300"
+        >
+          <span className="font-bold">!</span>
+          확인 필요 {attentionDates.length}건
+          <span className="ml-auto text-orange-500">›</span>
+        </button>
+      )}
+
       <div className="mb-3 flex items-center gap-2">
         <button
           type="button"
@@ -147,7 +178,7 @@ export default function MonthCalendar({
                   return (
                     <span
                       key={r.id}
-                      className={`block h-1.5 rounded-full ${style.bar} ${style.dim ? DIM_CLASS : ''}`}
+                      className={`block h-1.5 rounded-full ${style.bar} ${style.dimClass}`}
                       title={`${style.label} · ${r.propertyName}`}
                     />
                   );
@@ -170,8 +201,9 @@ export default function MonthCalendar({
         })}
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-neutral-500">막대 = 예약(상태색) · 점 = 청소</p>
+      <Legend />
+
+      <div className="mt-1 flex justify-end">
         <button
           type="button"
           onClick={() => setShowCancelled((v) => !v)}
@@ -234,20 +266,24 @@ function ReservationCard({ reservation, date }: { reservation: CalReservation; d
   return (
     <Link
       href={`/reservations/${reservation.id}`}
-      className={`block rounded-2xl px-4 py-3.5 ${style.card} ${style.dim ? DIM_CLASS : ''}`}
+      // opacity 는 클릭을 막지 않는다. 흐려도 눌러서 열 수 있다.
+      className={`relative block rounded-2xl px-4 py-3.5 ${style.card}`}
     >
-      <div className="flex items-center gap-2">
-        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${style.badge}`}>
-          {style.label}
-        </span>
-        {isCheckin && <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">입실</span>}
-        {isCheckout && <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-400">퇴실</span>}
-        <span className="min-w-0 flex-1 truncate text-sm">{reservation.propertyName}</span>
+      {/* 배지는 흐림 밖에 둔다 — 배지까지 흐려지면 왜 흐린지 알 수 없어진다 */}
+      <span className={`absolute top-3.5 right-4 rounded-full px-2.5 py-1 text-xs font-semibold ${style.badge}`}>
+        {style.label}
+      </span>
+      <div className={style.dimClass}>
+        <div className="flex items-center gap-2 pr-16">
+          {isCheckin && <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">입실</span>}
+          {isCheckout && <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-400">퇴실</span>}
+          <span className="min-w-0 flex-1 truncate text-sm">{reservation.propertyName}</span>
+        </div>
+        <p className={`mt-1.5 text-sm ${style.strikethrough ? 'line-through' : ''}`}>
+          {formatShortDate(reservation.checkinDate)} ~ {formatShortDate(reservation.checkoutDate)}
+          {reservation.guestName ? ` · ${reservation.guestName}` : ''}
+        </p>
       </div>
-      <p className={`mt-1.5 text-sm ${style.strikethrough ? 'line-through' : ''}`}>
-        {formatShortDate(reservation.checkinDate)} ~ {formatShortDate(reservation.checkoutDate)}
-        {reservation.guestName ? ` · ${reservation.guestName}` : ''}
-      </p>
     </Link>
   );
 }
