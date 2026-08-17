@@ -87,6 +87,7 @@ export type Database = {
           id: string
           needs_attention: boolean
           note: string | null
+          planned_date: string | null
           property_id: string
           scheduled_date: string
           source_reservation_id: string | null
@@ -101,6 +102,7 @@ export type Database = {
           id?: string
           needs_attention?: boolean
           note?: string | null
+          planned_date?: string | null
           property_id: string
           scheduled_date: string
           source_reservation_id?: string | null
@@ -115,6 +117,7 @@ export type Database = {
           id?: string
           needs_attention?: boolean
           note?: string | null
+          planned_date?: string | null
           property_id?: string
           scheduled_date?: string
           source_reservation_id?: string | null
@@ -703,6 +706,7 @@ export type Database = {
           id: string
           needs_attention: boolean
           note: string | null
+          planned_date: string | null
           property_id: string
           scheduled_date: string
           source_reservation_id: string | null
@@ -729,6 +733,31 @@ export type Database = {
           id: string
           needs_attention: boolean
           note: string | null
+          planned_date: string | null
+          property_id: string
+          scheduled_date: string
+          source_reservation_id: string | null
+          status: Database["public"]["Enums"]["cleaning_status"]
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "cleaning_tasks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      set_cleaning_planned_date: {
+        Args: { p_date: string; p_task_id: string }
+        Returns: {
+          assignee_id: string | null
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string
+          id: string
+          needs_attention: boolean
+          note: string | null
+          planned_date: string | null
           property_id: string
           scheduled_date: string
           source_reservation_id: string | null

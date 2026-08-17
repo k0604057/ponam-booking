@@ -10,13 +10,14 @@ export function StatusBadge({ status }: { status: CleaningStatus }) {
   return <Badge className="bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300">청소전</Badge>;
 }
 
-/** 같은 숙소에 이 날짜로 입실이 잡혀 있으면 표시한다. 청소 담당에게 가장 중요한 정보다. */
-export function TurnoverBadge({ time }: { time: string | null }) {
-  return (
-    <Badge className="bg-red-600 text-white">
-      당일 입실 있음{time ? ` · ${time.slice(0, 5)}까지` : ''}
-    </Badge>
-  );
+/** 퇴실 당일에 입실이 잡혀 있으면 표시한다. 청소 담당에게 가장 중요한 정보다. */
+export function TurnoverBadge() {
+  return <Badge className="bg-red-600 text-white">당일 입실 있음</Badge>;
+}
+
+/** 담당자가 정한 예정일이 마감일을 넘었다. 저장은 막지 않고 경고만 한다. */
+export function OverdueDeadlineBadge() {
+  return <Badge className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">마감일 초과</Badge>;
 }
 
 export function AttentionBadge() {

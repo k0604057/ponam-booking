@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type { Viewer } from './types';
 
 const BUCKET = 'cleaning-photos';
 const MAX_EDGE = 1600;
 const QUALITY = 0.8;
 const SIGNED_URL_TTL = 60 * 60; // 1시간
 
-type Photo = { id: string; path: string; url: string | null };
+type Photo = { id: string; path: string; url: string | null; uploadedBy: string | null };
 
 /**
  * 폰 원본은 3~5MB라 그대로 올리면 느리고 스토리지가 금방 찬다.
@@ -28,9 +29,7 @@ async function resize(file: File): Promise<Blob> {
   ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
 
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/jpeg', QUALITY)
-  );
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', QUALITY));
   if (!blob) throw new Error('이미지를 처리하지 못했습니다.');
   return blob;
 }
@@ -40,7 +39,7 @@ async function fetchPhotos(taskId: string): Promise<Photo[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('cleaning_photos')
-    .select('id, storage_path')
+    .select('id, storage_path, uploaded_by')
     .eq('cleaning_task_id', taskId)
     .order('created_at', { ascending: true });
 
@@ -54,15 +53,26 @@ async function fetchPhotos(taskId: string): Promise<Photo[]> {
     id: p.id,
     path: p.storage_path,
     url: signed?.[i]?.signedUrl ?? null,
+    uploadedBy: p.uploaded_by,
   }));
 }
 
-export default function PhotoSection({ taskId, canUpload }: { taskId: string; canUpload: boolean }) {
+export default function PhotoSection({
+  taskId,
+  canUpload,
+  viewer,
+}: {
+  taskId: string;
+  canUpload: boolean;
+  viewer: Viewer;
+}) {
   const [photos, setPhotos] = useState<Photo[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failed, setFailed] = useState<File[]>([]);
+  const [viewing, setViewing] = useState<Photo | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -80,6 +90,9 @@ export default function PhotoSection({ taskId, canUpload }: { taskId: string; ca
     };
   }, [taskId]);
 
+  // RLS: 올린 본인과 owner 만 지울 수 있다. 남의 사진에는 버튼을 아예 안 그린다.
+  const canDelete = (p: Photo) => viewer.isOwner || (!!viewer.id && p.uploadedBy === viewer.id);
+
   async function upload(files: File[]) {
     if (!files.length) return;
     setBusy(true);
@@ -88,25 +101,22 @@ export default function PhotoSection({ taskId, canUpload }: { taskId: string; ca
     setProgress({ done: 0, total: files.length });
 
     const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
     const stillFailed: File[] = [];
+
     for (const [i, file] of files.entries()) {
       try {
         const blob = await resize(file);
         const path = `${taskId}/${crypto.randomUUID()}.jpg`;
 
-        const { error: upErr } = await supabase.storage
-          .from(BUCKET)
-          .upload(path, blob, { contentType: 'image/jpeg' });
+        const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, blob, {
+          contentType: 'image/jpeg',
+        });
         if (upErr) throw upErr;
 
         const { error: insErr } = await supabase.from('cleaning_photos').insert({
           cleaning_task_id: taskId,
           storage_path: path,
-          uploaded_by: user?.id ?? null,
+          uploaded_by: viewer.id,
         });
         if (insErr) throw insErr;
       } catch (err) {
@@ -122,6 +132,32 @@ export default function PhotoSection({ taskId, canUpload }: { taskId: string; ca
     await load();
   }
 
+  async function remove(photo: Photo) {
+    setBusy(true);
+    setError(null);
+
+    const supabase = createClient();
+
+    // 스토리지를 먼저 지운다. DB 행만 지우면 파일이 고아로 남는다.
+    const { error: storageErr } = await supabase.storage.from(BUCKET).remove([photo.path]);
+    if (storageErr) {
+      setBusy(false);
+      setError('사진 파일을 지우지 못했습니다. 목록은 그대로 두었습니다.');
+      return;
+    }
+
+    const { error: dbErr } = await supabase.from('cleaning_photos').delete().eq('id', photo.id);
+    setBusy(false);
+    if (dbErr) {
+      setError('파일은 지웠지만 목록에서 제거하지 못했습니다. 새로고침 후 다시 시도해주세요.');
+      return;
+    }
+
+    setConfirming(false);
+    setViewing(null);
+    await load();
+  }
+
   return (
     <section>
       <h3 className="mb-2 text-sm font-semibold text-neutral-500">사진</h3>
@@ -133,12 +169,21 @@ export default function PhotoSection({ taskId, canUpload }: { taskId: string; ca
       ) : (
         <ul className="grid grid-cols-3 gap-2">
           {photos.map((p) => (
-            <li key={p.id} className="aspect-square overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-800">
-              {p.url ? (
-                // 서명 URL 이라 next/image 최적화 대상이 아니다.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.url} alt="청소 사진" className="size-full object-cover" loading="lazy" />
-              ) : null}
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewing(p);
+                  setConfirming(false);
+                }}
+                className="aspect-square w-full overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-800"
+              >
+                {p.url ? (
+                  // 서명 URL 이라 next/image 최적화 대상이 아니다.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.url} alt="청소 사진" className="size-full object-cover" loading="lazy" />
+                ) : null}
+              </button>
             </li>
           ))}
         </ul>
@@ -184,6 +229,63 @@ export default function PhotoSection({ taskId, canUpload }: { taskId: string; ca
         >
           실패한 {failed.length}장 다시 시도
         </button>
+      )}
+
+      {viewing && (
+        <div
+          className="fixed inset-0 z-[80] flex flex-col justify-center bg-black/90 px-4"
+          onClick={() => setViewing(null)}
+        >
+          {viewing.url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={viewing.url} alt="청소 사진" className="max-h-[70dvh] w-full object-contain" />
+          )}
+          <div
+            className="mt-6 flex flex-col gap-2"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {confirming ? (
+              <>
+                <p className="text-center text-sm text-white">이 사진을 삭제할까요?</p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void remove(viewing)}
+                  className="h-13 min-h-[52px] w-full rounded-xl bg-red-600 text-base font-bold text-white disabled:opacity-60"
+                >
+                  {busy ? '삭제 중…' : '삭제'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  className="h-12 w-full rounded-xl text-sm font-semibold text-neutral-300"
+                >
+                  취소
+                </button>
+              </>
+            ) : (
+              <>
+                {canDelete(viewing) && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(true)}
+                    className="h-13 min-h-[52px] w-full rounded-xl border border-red-400 text-base font-bold text-red-300"
+                  >
+                    삭제
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setViewing(null)}
+                  className="h-12 w-full rounded-xl text-sm font-semibold text-neutral-300"
+                >
+                  닫기
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </section>
   );

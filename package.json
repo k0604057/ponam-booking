@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test crawler/parse.test.ts"
+    "test": "tsx --test crawler/parse.test.ts src/lib/cleaning.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
