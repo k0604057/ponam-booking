@@ -39,8 +39,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   };
 
+  // API 는 리다이렉트하지 않는다. HTML 로그인 페이지로 보내면 호출자가 401 대신
+  // '405 Method Not Allowed' 를 받게 된다. 각 라우트가 스스로 401/403 을 낸다.
+  const isApi = pathname.startsWith('/api/');
+
   if (!user) {
-    if (pathname === LOGIN) return response;
+    if (isApi || pathname === LOGIN) return response;
     // 만료로 튕긴 경우 로그인 후 원래 보던 화면으로 돌아가게 한다.
     const url = request.nextUrl.clone();
     url.pathname = LOGIN;
@@ -54,6 +58,7 @@ export async function middleware(request: NextRequest) {
   const { data: profile } = await supabase.from('profiles').select('id').eq('id', user.id).maybeSingle();
 
   if (!profile) {
+    if (isApi) return response;
     return pathname === PENDING ? response : redirect(PENDING);
   }
 
@@ -65,7 +70,10 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // 정적 파일·이미지·manifest·아이콘 제외
-    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icon-\\d+\\.png|apple-icon|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    // 제외 대상:
+    //   - 정적 파일·이미지·manifest·아이콘
+    //   - /invite : 초대받은 사람은 로그인 전에 열어야 한다. 여기서 빼지 않으면 /login 으로 튕긴다
+    //   - /api/invite/accept : 로그인 없이 호출되는 유일한 특권 라우트 (토큰으로 스스로 검증한다)
+    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icon-\\d+\\.png|apple-icon|invite|api/invite/accept|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

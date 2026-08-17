@@ -1,5 +1,8 @@
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import SignOutButton from '@/components/auth/SignOutButton';
+import NameEditor from '@/components/members/NameEditor';
+import { toDisplayId } from '@/lib/auth/identity';
 import { seoulToday } from '@/lib/cleaning';
 import { countByMember, countByMonth, formatMonth, recentMonths, shiftMonth } from '@/lib/stats';
 
@@ -38,9 +41,8 @@ export default async function MorePage() {
   const tasks = (done ?? []).map((t) => ({
     completedAt: t.completed_at,
     completedBy: t.completed_by,
-    // profiles.name 은 기본값이 빈 문자열이고 이름 편집 화면이 아직 없다.
-    // 이름이 비면 이메일로 대신 표시한다 — 활성 멤버끼리는 서로 이메일을 볼 수 있다.
-    completerName: t.completer?.name?.trim() || t.completer?.email || null,
+    // 이름 편집이 생겼지만 어떤 이유로든 이름이 비면 '(이름 없음)' 보다 아이디가 낫다.
+    completerName: t.completer?.name?.trim() || toDisplayId(t.completer?.email) || null,
   }));
 
   // seoulToday() 가 이미 서울 기준 YYYY-MM-DD 다.
@@ -75,11 +77,22 @@ export default async function MorePage() {
       <section className="mb-6 rounded-2xl border border-neutral-200 p-5 dark:border-neutral-800">
         <h2 className="mb-4 text-sm font-semibold text-neutral-500">내 정보</h2>
         <dl className="flex flex-col gap-3 text-sm">
-          <Row label="이름" value={profile?.name || '—'} />
-          <Row label="이메일" value={profile?.email || user?.email || '—'} truncate />
+          <NameEditor userId={uid} initialName={profile?.name ?? ''} />
+          {/* 내부 이메일(<아이디>@ponam.local)을 그대로 보여주면 혼란만 준다 */}
+          <Row label="아이디" value={toDisplayId(profile?.email || user?.email)} truncate />
           <Row label="역할" value={profile?.role ? (ROLE_LABEL[profile.role] ?? profile.role) : '—'} />
         </dl>
       </section>
+
+      {profile?.role === 'owner' && (
+        <Link
+          href="/more/members"
+          className="mb-6 flex h-[52px] min-h-[52px] w-full items-center justify-between rounded-xl border border-neutral-300 px-4 text-base font-semibold dark:border-neutral-700"
+        >
+          멤버 관리
+          <span className="text-neutral-400">›</span>
+        </Link>
+      )}
 
       <section className="mb-6 rounded-2xl border border-neutral-200 p-5 dark:border-neutral-800">
         <h2 className="mb-1 text-sm font-semibold text-neutral-500">내 청소 건수</h2>

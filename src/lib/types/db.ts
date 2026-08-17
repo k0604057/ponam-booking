@@ -236,6 +236,7 @@ export type Database = {
           email: string
           expires_at: string
           id: string
+          name: string
           role: Database["public"]["Enums"]["user_role"]
           token_hash: string
         }
@@ -246,6 +247,7 @@ export type Database = {
           email: string
           expires_at: string
           id?: string
+          name?: string
           role: Database["public"]["Enums"]["user_role"]
           token_hash: string
         }
@@ -256,6 +258,7 @@ export type Database = {
           email?: string
           expires_at?: string
           id?: string
+          name?: string
           role?: Database["public"]["Enums"]["user_role"]
           token_hash?: string
         }
