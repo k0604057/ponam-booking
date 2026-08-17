@@ -1,3 +1,5 @@
+@docs/00_작업규칙.md
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
