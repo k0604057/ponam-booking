@@ -7,8 +7,9 @@ export default function manifest(): MetadataRoute.Manifest {
     description: '포남동 숙소 예약·청소·정산 관리',
     lang: 'ko',
     display: 'standalone',
-    // 청소 담당이 주 사용자다. 홈 화면에서 바로 청소 보드로 들어간다.
-    start_url: '/cleaning',
+    // '/' 로 두면 미들웨어가 역할을 보고 알맞은 홈으로 보낸다
+    // (청소 담당 → /cleaning, 그 외 → /calendar).
+    start_url: '/',
     scope: '/',
     background_color: '#ffffff',
     theme_color: '#0a0a0a',

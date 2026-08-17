@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { formatShortDate, seoulToday } from '@/lib/cleaning';
 import { perf, perfStart } from '@/lib/perf';
+import { DIM_CLASS, statusStyle } from '@/lib/status';
 
 // Supabase 가 ap-northeast-2(서울)에 있다. 함수도 같은 리전에 둔다.
 export const preferredRegion = 'icn1';
@@ -98,20 +99,24 @@ export default async function ReservationsPage({ searchParams }: PageProps<'/res
       ) : (
         <ul className="flex flex-col gap-3">
           {filtered.map((r) => {
-            const staying = r.status !== 'cancelled' && r.checkin_date <= today && today <= r.checkout_date;
             // reservation_finance 는 owner/reservation/settlement 만 조회된다.
             // 안 보이는 역할에는 아예 오지 않으므로 그 줄을 생략한다.
             const finance = r.reservation_finance;
             const guestName = r.reservation_private?.guest_name ?? null;
 
+            // 달력 막대와 **같은 상수**를 쓴다. 세 군데서 따로 정의하면 반드시 어긋난다.
+            const style = statusStyle(r.status, r.checkin_date, r.checkout_date, today);
+
             return (
               <li key={r.id}>
                 <Link
                   href={`/reservations/${r.id}`}
-                  className="block rounded-2xl border border-neutral-200 px-4 py-3.5 dark:border-neutral-800"
+                  // 종료·취소 건은 카드 전체를 흐리게 한다.
+                  // 배경만 회색으로 두면 글자·배지·금액이 여전히 눈에 걸린다.
+                  className={`block rounded-2xl px-4 py-3.5 ${style.card} ${style.dim ? DIM_CLASS : ''}`}
                 >
                   <div className="flex items-baseline gap-2">
-                    <span className="text-base font-bold">
+                    <span className={`text-base font-bold ${style.strikethrough ? 'line-through' : ''}`}>
                       {formatShortDate(r.checkin_date)} ~ {formatShortDate(r.checkout_date)}
                     </span>
                     <span className="text-xs text-neutral-500">{r.nights}박</span>
@@ -122,7 +127,10 @@ export default async function ReservationsPage({ searchParams }: PageProps<'/res
                     <span className="min-w-0 flex-1 truncate text-sm text-neutral-600 dark:text-neutral-400">
                       {r.properties?.name ?? '숙소'}
                     </span>
-                    <StatusChip status={r.status} staying={staying} />
+                    {/* 색만으로 구분하지 않는다. 배지 텍스트를 항상 같이 둔다. */}
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${style.badge}`}>
+                      {style.label}
+                    </span>
                   </div>
 
                   {guestName && <p className="mt-2 text-sm text-neutral-500">{guestName}</p>}
@@ -144,21 +152,3 @@ export default async function ReservationsPage({ searchParams }: PageProps<'/res
   );
 }
 
-function StatusChip({ status, staying }: { status: string; staying: boolean }) {
-  if (status === 'cancelled') {
-    return <Chip className="bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">취소</Chip>;
-  }
-  if (staying) {
-    return <Chip className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">거주중</Chip>;
-  }
-  if (status === 'completed') {
-    return <Chip className="bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">종료</Chip>;
-  }
-  return <Chip className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">예정</Chip>;
-}
-
-function Chip({ children, className }: { children: React.ReactNode; className: string }) {
-  return (
-    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{children}</span>
-  );
-}

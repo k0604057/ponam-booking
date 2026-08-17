@@ -18,7 +18,7 @@ import {
   seoulToday,
   weekdayIndex,
 } from './cleaning';
-import { groupByWeek, monthGridDates, startOfWeek, weekLabel, type CalendarEvent } from './calendar';
+import { monthGridDates, startOfWeek } from './calendar';
 
 // ---------------------------------------------------------------- 날짜 기본
 
@@ -136,21 +136,6 @@ test('startOfWeek — 월요일을 돌려준다', () => {
   assert.equal(startOfWeek('2026-08-21'), '2026-08-17', '금요일');
   assert.equal(startOfWeek('2026-08-23'), '2026-08-17', '일요일은 그 주에 속한다');
   assert.equal(startOfWeek('2026-08-24'), '2026-08-24', '다음 월요일');
-});
-
-test('weekLabel', () => {
-  assert.equal(weekLabel('2026-08-17'), '8월 3주 (8/17 – 8/23)');
-});
-
-test('groupByWeek — 주 단위로 묶고 날짜순 정렬', () => {
-  const ev = (date: string, kind: CalendarEvent['kind']): CalendarEvent => ({
-    key: `${kind}-${date}`, date, kind,
-    propertyName: '테스트', propertyColor: '#000',
-    guestName: null, reservationId: null, cleaningTaskId: null, detail: null,
-  });
-  const weeks = groupByWeek([ev('2026-08-25', 'checkin'), ev('2026-08-21', 'checkout'), ev('2026-08-17', 'checkin')]);
-  assert.deepEqual(weeks.map((w) => w.monday), ['2026-08-17', '2026-08-24']);
-  assert.deepEqual(weeks[0].events.map((e) => e.date), ['2026-08-17', '2026-08-21']);
 });
 
 test('monthGridDates — 6주 42칸, 그 달 1일이 포함된다', () => {

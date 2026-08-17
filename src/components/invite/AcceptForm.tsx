@@ -46,7 +46,8 @@ export default function AcceptForm({ token }: { token: string }) {
       return;
     }
 
-    router.replace('/cleaning');
+    // 역할별 홈 판단은 미들웨어가 한다.
+    router.replace('/');
     router.refresh();
   }
 

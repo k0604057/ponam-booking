@@ -6,9 +6,9 @@ import { usePathname } from 'next/navigation';
 // 역할로 탭을 숨기지 않는다. RLS 가 이미 막고 있으므로 보안 문제가 아니라 UX 문제다.
 // next/link 를 쓰는 이유는 프리페치다 — router.push 나 <a> 로 바꾸면 프리페치가 사라진다.
 const TABS = [
-  { href: '/cleaning', label: '청소', icon: BroomIcon },
   { href: '/calendar', label: '달력', icon: CalendarIcon },
   { href: '/reservations', label: '예약', icon: ListIcon },
+  { href: '/cleaning', label: '청소', icon: BroomIcon },
   { href: '/more', label: '더보기', icon: MoreIcon },
 ] as const;
 

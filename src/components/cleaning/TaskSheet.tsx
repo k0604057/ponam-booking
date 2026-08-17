@@ -16,10 +16,13 @@ export default function TaskSheet({
   task,
   viewer,
   onClose,
+  onCompleted,
 }: {
   task: CleaningTaskView;
   viewer: Viewer;
   onClose: () => void;
+  /** 완료에 성공하면 시트를 닫고 목록으로 돌아간다. */
+  onCompleted: (message: string) => void;
 }) {
   const router = useRouter();
 
@@ -58,9 +61,8 @@ export default function TaskSheet({
       setError(rpcError.message);
       return;
     }
+    // 맡기와 날짜는 별개다. 날짜 선택 시트를 자동으로 띄우지 않는다.
     router.refresh();
-    // 맡자마자 날짜를 정하게 한다. 두 번 누르게 하지 않는다.
-    if (next && status === 'pending') setPickingDate(true);
   }
 
   async function pickDate(date: string | null) {
@@ -94,6 +96,8 @@ export default function TaskSheet({
     setError(null);
     setBusy(true);
 
+    // 담당을 지정하지 않아도 완료된다 — RPC 가 assignee_id is null 을 허용한다.
+    // 완료자는 completed_by 에 기록된다.
     const { error: rpcError } = await createClient().rpc('set_cleaning_done', {
       p_task_id: task.id,
       p_done: next,
@@ -103,11 +107,16 @@ export default function TaskSheet({
 
     setBusy(false);
     if (rpcError) {
+      // 실패하면 시트를 닫지 않는다. 에러를 시트 안에 보여준다.
       setStatus(prev);
       setError(rpcError.message);
       return;
     }
+
     router.refresh();
+    // 완료는 시트를 닫고 목록으로 돌아간다.
+    // 완료 취소는 되돌리고 바로 다시 볼 일이 많으므로 닫지 않는다.
+    if (next) onCompleted('청소 완료되었습니다');
   }
 
   return (
@@ -130,10 +139,8 @@ export default function TaskSheet({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-40">
-        {/* 1) 날짜·여유 기간 */}
         <SlackLine task={task} />
 
-        {/* 2) 상태·경고 배지 */}
         <div className="mt-3 mb-6 flex flex-wrap gap-2">
           <StatusBadge status={status} />
           {task.slackDays <= 0 && <TurnoverBadge />}
@@ -141,51 +148,45 @@ export default function TaskSheet({
           {deadlineExceeded && <OverdueDeadlineBadge />}
         </div>
 
-        {/* 3) 담당자 · 맡기/놓기 */}
-        <section className="mb-5">
-          <div className="mb-2 flex items-baseline justify-between gap-3">
-            <span className="text-sm font-semibold text-neutral-500">담당</span>
-            <span className="text-sm font-medium">{isMine ? '나' : (assigneeName ?? '미배정')}</span>
-          </div>
-          {status !== 'skipped' && (
+        {/* 담당은 부가 정보다. 완료의 전제 조건이 아니다. */}
+        <div className="mb-4 flex items-center gap-3">
+          <span className="text-sm text-neutral-500">담당</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            {isMine ? '나' : (assigneeName ?? '미지정')}
+          </span>
+          {status !== 'skipped' && (isMine || unassigned) && (
             <button
               type="button"
               disabled={busy}
               onClick={() => void claim(!isMine)}
-              className={`h-13 min-h-[52px] w-full rounded-xl text-base font-bold disabled:opacity-60 ${
-                isMine
-                  ? 'border border-neutral-300 dark:border-neutral-700'
-                  : 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-              }`}
+              className="h-9 shrink-0 rounded-full border border-neutral-300 px-3 text-xs font-semibold disabled:opacity-60 dark:border-neutral-700"
             >
-              {isMine ? '놓기' : '내가 맡음'}
+              {isMine ? '담당 해제' : '내가 맡기'}
             </button>
           )}
-        </section>
+        </div>
 
-        {/* 4) 청소 예정일 — 맡은 뒤에만 */}
-        {status !== 'skipped' && isMine && (
-          <section className="mb-5">
-            <div className="mb-2 flex items-baseline justify-between gap-3">
-              <span className="text-sm font-semibold text-neutral-500">청소 예정일</span>
-              <span className="text-sm font-medium">
-                {plannedDate ? formatShortDate(plannedDate) : '아직 안 정함'}
-              </span>
-            </div>
+        {status !== 'skipped' && (
+          <div className="mb-6 flex items-center gap-3">
+            <span className="text-sm text-neutral-500">청소 예정일</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {plannedDate ? formatShortDate(plannedDate) : '미정'}
+            </span>
             <button
               type="button"
               disabled={busy}
               onClick={() => setPickingDate(true)}
-              className="h-12 w-full rounded-xl border border-neutral-300 text-sm font-semibold disabled:opacity-60 dark:border-neutral-700"
+              className="h-9 shrink-0 rounded-full border border-neutral-300 px-3 text-xs font-semibold disabled:opacity-60 dark:border-neutral-700"
             >
               날짜 선택
             </button>
-            {deadlineExceeded && (
-              <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-                마감일({formatShortDate(task.deadline)})을 넘겼습니다.
-              </p>
-            )}
-          </section>
+          </div>
+        )}
+
+        {deadlineExceeded && (
+          <p className="mb-6 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+            마감일({formatShortDate(task.deadline)})을 넘겼습니다.
+          </p>
         )}
 
         {task.publicNote && (
@@ -197,7 +198,6 @@ export default function TaskSheet({
           </section>
         )}
 
-        {/* 5) 메모 */}
         {status !== 'skipped' && (
           <section className="mb-6">
             <label className="mb-1.5 block text-sm font-semibold text-neutral-500" htmlFor={`note-${task.id}`}>
@@ -216,7 +216,6 @@ export default function TaskSheet({
           </section>
         )}
 
-        {/* 6) 사진 */}
         <PhotoSection taskId={task.id} canUpload={canUploadPhoto} viewer={viewer} />
 
         {status === 'done' && (
@@ -233,7 +232,6 @@ export default function TaskSheet({
         )}
       </div>
 
-      {/* 7) 하단 고정 액션 */}
       {status !== 'skipped' && (
         <div
           className="border-t border-neutral-200 bg-white px-4 pt-3 dark:border-neutral-800 dark:bg-neutral-950"
@@ -246,7 +244,7 @@ export default function TaskSheet({
             type="button"
             disabled={busy}
             onClick={() => void setDone(status !== 'done')}
-            className={`h-13 min-h-[52px] w-full rounded-xl text-base font-bold disabled:opacity-60 ${
+            className={`h-[52px] min-h-[52px] w-full rounded-xl text-base font-bold disabled:opacity-60 ${
               status === 'done'
                 ? 'border border-neutral-300 dark:border-neutral-700'
                 : 'bg-emerald-600 text-white'
