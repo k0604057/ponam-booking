@@ -274,13 +274,16 @@ async function realUserAgent(browser: Browser): Promise<string> {
  * 403 은 로그인 폼도 리다이렉트도 없는 순수 차단 페이지라, 상태를 안 보면
  * '정상 접속했는데 계약이 0건' 으로 오인된다.
  */
-async function navigate(page: Page, url: string): Promise<void> {
-  const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-  const status = resp?.status() ?? 0;
+export function assertHttpOk(url: string, status: number): void {
   if (status === 401 || status === 403) {
     throw new BlockedError(`${url} 접근이 거부됐습니다 (HTTP ${status})`);
   }
   if (status >= 400) throw new Error(`${url} 요청 실패 (HTTP ${status})`);
+}
+
+async function navigate(page: Page, url: string): Promise<void> {
+  const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+  assertHttpOk(url, resp?.status() ?? 0);
   await page.waitForLoadState('networkidle').catch(() => {});
 }
 
