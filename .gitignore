@@ -32,6 +32,12 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+.env*.local
+
+# 시크릿 / 크롤러 세션
+.ponam*
+*session*.json
+crawler/.auth/
 
 # vercel
 .vercel
