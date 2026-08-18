@@ -10,7 +10,8 @@ import { RESERVATION_STATUS_STYLE } from '@/lib/status';
 import Legend from './Legend';
 import type { CalReservation, CalTask } from './types';
 
-const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'] as const;
+// 일요일 시작. 순서를 바꾸면 lib/calendar.ts 의 startOfWeek 도 같이 맞춰야 한다.
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const;
 const MAX_BARS = 2;
 
 export default function MonthCalendar({

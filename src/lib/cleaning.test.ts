@@ -131,17 +131,19 @@ test('groupBySection — 빈 섹션은 만들지 않고, 정해진 순서를 지
 
 // ---------------------------------------------------------------- 달력
 
-test('startOfWeek — 월요일을 돌려준다', () => {
-  assert.equal(startOfWeek('2026-08-17'), '2026-08-17', '월요일');
-  assert.equal(startOfWeek('2026-08-21'), '2026-08-17', '금요일');
-  assert.equal(startOfWeek('2026-08-23'), '2026-08-17', '일요일은 그 주에 속한다');
-  assert.equal(startOfWeek('2026-08-24'), '2026-08-24', '다음 월요일');
+test('startOfWeek — 일요일을 돌려준다', () => {
+  assert.equal(startOfWeek('2026-08-16'), '2026-08-16', '일요일은 그날이 시작');
+  assert.equal(startOfWeek('2026-08-17'), '2026-08-16', '월요일');
+  assert.equal(startOfWeek('2026-08-21'), '2026-08-16', '금요일');
+  assert.equal(startOfWeek('2026-08-22'), '2026-08-16', '토요일까지가 한 주');
+  assert.equal(startOfWeek('2026-08-23'), '2026-08-23', '다음 일요일');
 });
 
-test('monthGridDates — 6주 42칸, 그 달 1일이 포함된다', () => {
+test('monthGridDates — 6주 42칸, 일요일에서 시작하고 그 달이 다 들어간다', () => {
   const dates = monthGridDates('2026-08-17');
   assert.equal(dates.length, 42);
   assert.equal(startOfWeek('2026-08-01'), dates[0]);
+  assert.equal(weekdayIndex(dates[0]), 0, '첫 칸은 일요일');
   assert.ok(dates.includes('2026-08-01'));
   assert.ok(dates.includes('2026-08-31'));
 });
