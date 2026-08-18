@@ -48,8 +48,8 @@ export default function LoginForm() {
       return;
     }
 
-    // '/' 로 보내면 미들웨어가 활성 여부와 역할을 보고 알맞은 홈으로 보낸다.
-    // 여기서 역할을 알 수 없으므로 판단을 한 곳에 모은다.
+    // '/' 로 보내면 미들웨어가 활성 여부를 보고 /calendar 또는 /pending 으로 보낸다.
+    // 여기서 프로필을 다시 읽지 않도록 판단을 한 곳에 모은다.
     router.replace(next && next.startsWith('/') ? next : '/');
     router.refresh();
   }

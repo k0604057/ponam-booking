@@ -6,13 +6,8 @@ import { VIEWER_ID_HEADER, VIEWER_ROLE_HEADER } from '@/lib/auth/viewer';
 const LOGIN = '/login';
 const PENDING = '/pending';
 
-/**
- * 진입 화면은 역할에 따라 다르다.
- * 첫 탭으로 무조건 보내면 청소 담당이 매번 한 번씩 더 눌러야 한다.
- */
-function homeFor(role: string | null | undefined): string {
-  return role === 'cleaning' ? '/cleaning' : '/calendar';
-}
+// 진입 화면은 역할과 무관하게 달력이다. 누가 열든 같은 화면에서 시작한다.
+const HOME = '/calendar';
 
 export async function middleware(request: NextRequest) {
   // setAll 로 넘어온 갱신 쿠키를 모아뒀다가 마지막에 만드는 응답에 붙인다.
@@ -93,8 +88,8 @@ export async function middleware(request: NextRequest) {
     return pathname === PENDING ? passThrough() : redirect(PENDING);
   }
 
-  // 활성 멤버가 로그인·대기 화면에 오면 홈으로. '/' 도 역할에 맞는 홈으로 보낸다.
-  if (pathname === LOGIN || pathname === PENDING || pathname === '/') return redirect(homeFor(profile.role));
+  // 활성 멤버가 로그인·대기 화면에 오면 홈으로. '/'(PWA start_url) 도 홈으로 보낸다.
+  if (pathname === LOGIN || pathname === PENDING || pathname === '/') return redirect(HOME);
 
   // owner 전용 화면은 여기서 막는다.
   // 페이지 안에서 redirect() 하면 loading.tsx 때문에 응답이 스트리밍으로 나가서
